@@ -258,6 +258,31 @@
   }
   .sidebar-backdrop.show { display: block; }
 
+  .day-tabs {
+    display: none;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 2px 2px 8px;
+    margin-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .day-tabs::-webkit-scrollbar { display: none; }
+  .day-tab {
+    flex: 0 0 auto;
+    border: 0;
+    background: #eef2ee;
+    color: #4d574f;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .day-tab .tab-date { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+  .day-tab.active { background: var(--primary); color: #fff; }
+  .day-tab.active .tab-date { color: #dfe9e1; }
+
   /* ---------- responsive ---------- */
   @media (max-width: 1050px) {
     .sidebar { width: 220px; }
@@ -277,7 +302,10 @@
     .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .stat-value { font-size: 22px; }
     .card { padding: 14px; }
-    .week { grid-template-columns: repeat(6, minmax(270px, 1fr)); }
+    .day-tabs { display: flex; }
+    .week { grid-template-columns: 1fr; overflow: visible; padding: 0; }
+    .week .daycol { display: none; }
+    .week .daycol.active-day { display: block; }
     .form-grid { grid-template-columns: 1fr; }
     h1 { font-size: 20px; }
     .table-wrap { margin: 0 -1px; max-height: 55vh; }
@@ -292,7 +320,6 @@
     .pending-row button { width: 100%; }
   }
   @media (max-width: 480px) {
-    .week { grid-template-columns: 1fr; }
     .stats { grid-template-columns: 1fr 1fr; }
     .info-row { flex-direction: column; }
     .info-box { padding: 8px 10px; }
@@ -356,6 +383,7 @@
           <button id="refreshBtn" class="secondary">↻ Refresh</button>
         </div>
         <div id="stats" class="grid stats"></div>
+        <div id="dayTabs" class="day-tabs"></div>
         <div id="weekBoard" class="week"></div>
       </div>
 
@@ -423,6 +451,7 @@
     queries: [],
     page: 'dashboard',
     weekStart: null,
+    mobileDayIndex: 0, // which single day is shown on narrow screens
     dataLoaded: false, // guards against loading data twice on initial auth
   };
 
@@ -466,6 +495,18 @@
     const jsDay = parseDate(date).getDay(); // 0=Sun..6=Sat
     const idx = jsDay === 0 ? 6 : jsDay - 1; // 0=Mon..5=Sat, 6=Sun (unused, no Sunday sabha)
     return DAYS[idx] || null;
+  }
+
+  // Picks which single day the mobile view opens on: today's weekday if
+  // today falls inside the currently displayed week. If today is Sunday
+  // (not shown — there's no Sabha day for it), falls back to Saturday,
+  // the most recently relevant day, rather than Monday of the new week.
+  function syncMobileDayIndex() {
+    const today = localDate();
+    for (let i = 0; i < DAYS.length; i++) {
+      if (addDays(state.weekStart, i) === today) { state.mobileDayIndex = i; return; }
+    }
+    state.mobileDayIndex = DAYS.length - 1;
   }
 
   function formatDate(s) {
@@ -590,7 +631,7 @@
         ? `<span class="day-badge pending" data-date="${date}" title="Click to see pending Mandals">${dayPending} Pending</span>`
         : `<span class="day-badge">${dayReceived}/${schedules.length}</span>`;
 
-      return `<div class="daycol">
+      return `<div class="daycol" data-idx="${i}">
         <div class="dayhead">
           <div class="dayhead-left">
             <div class="dayname">${day}</div>
@@ -601,6 +642,18 @@
         ${body}
       </div>`;
     }).join('');
+
+    $('dayTabs').innerHTML = DAYS.map((day, i) => {
+      const date = addDays(state.weekStart, i);
+      return `<button type="button" class="day-tab ${i === state.mobileDayIndex ? 'active' : ''}" data-idx="${i}">${esc(day)}<span class="tab-date">${formatDate(date)}</span></button>`;
+    }).join('');
+
+    document.querySelectorAll('.week .daycol').forEach(el => {
+      el.classList.toggle('active-day', Number(el.dataset.idx) === state.mobileDayIndex);
+    });
+    document.querySelectorAll('.day-tab').forEach(btn => {
+      btn.onclick = () => { state.mobileDayIndex = Number(btn.dataset.idx); renderDashboard(); };
+    });
 
     $('stats').innerHTML = [
       ['Expected', expected, 'Weekly scheduled gatherings'],
@@ -1179,6 +1232,7 @@
   async function init() {
     state.weekStart = mondayOf(localDate());
     $('weekDate').value = state.weekStart;
+    syncMobileDayIndex();
 
     const { data: { session } } = await sb.auth.getSession();
     if (session) {
@@ -1234,10 +1288,10 @@
   $('modalClose').onclick = closeModal;
   $('modalBackdrop').onclick = e => { if (e.target === $('modalBackdrop')) closeModal(); };
 
-  $('weekDate').onchange = () => { state.weekStart = mondayOf($('weekDate').value); $('weekDate').value = state.weekStart; renderDashboard(); };
-  $('prevWeek').onclick = () => { state.weekStart = addDays(state.weekStart, -7); $('weekDate').value = state.weekStart; renderDashboard(); };
-  $('nextWeek').onclick = () => { state.weekStart = addDays(state.weekStart, 7); $('weekDate').value = state.weekStart; renderDashboard(); };
-  $('todayWeek').onclick = () => { state.weekStart = mondayOf(localDate()); $('weekDate').value = state.weekStart; renderDashboard(); };
+  $('weekDate').onchange = () => { state.weekStart = mondayOf($('weekDate').value); $('weekDate').value = state.weekStart; syncMobileDayIndex(); renderDashboard(); };
+  $('prevWeek').onclick = () => { state.weekStart = addDays(state.weekStart, -7); $('weekDate').value = state.weekStart; syncMobileDayIndex(); renderDashboard(); };
+  $('nextWeek').onclick = () => { state.weekStart = addDays(state.weekStart, 7); $('weekDate').value = state.weekStart; syncMobileDayIndex(); renderDashboard(); };
+  $('todayWeek').onclick = () => { state.weekStart = mondayOf(localDate()); $('weekDate').value = state.weekStart; syncMobileDayIndex(); renderDashboard(); };
   $('refreshBtn').onclick = async () => { try { await loadAll(); renderDashboard(); msg('Data refreshed.'); } catch (e) { msg(e.message, 'error'); } };
 
   $('reportSearch').oninput = renderReports;
