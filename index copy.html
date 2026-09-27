@@ -1,0 +1,1281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sabha Reports Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+Bhai+2:wght@400..800&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f7f5;
+    --card: #fff;
+    --text: #172018;
+    --muted: #687168;
+    --line: #e4e8e3;
+    --primary: #3a5a40;
+    --primary2: #344e41;
+    --success: #2f7d4a;
+    --warning: #b7791f;
+    --danger: #b44343;
+    --shadow: 0 8px 28px rgba(24, 35, 27, .07);
+    --radius: 16px;
+    --topbar-h: 68px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 'Sora', 'Baloo Bhai 2', system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* ---------- layout ---------- */
+  .app { min-height: 100vh; }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 245px;
+    background: #fff;
+    border-right: 1px solid var(--line);
+    padding: 20px 14px;
+    z-index: 20;
+  }
+  .brand { font-weight: 800; font-size: 18px; padding: 8px 10px 22px; }
+  .brand span { color: var(--primary); }
+  .nav { display: grid; gap: 5px; }
+  .nav button {
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: 11px 12px;
+    border-radius: 10px;
+    color: #4d574f;
+  }
+  .nav button.active, .nav button:hover {
+    background: #edf2ed;
+    color: var(--primary2);
+    font-weight: 700;
+  }
+
+  .main { margin-left: 245px; min-height: 100vh; }
+  .topbar {
+    height: var(--topbar-h);
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .menu { display: none; }
+  .top-title { font-size: 18px; font-weight: 750; }
+  .userbox { display: flex; align-items: center; gap: 12px; }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #e8eee9; display: grid; place-items: center;
+    color: var(--primary); font-weight: 800;
+  }
+
+  .content { padding: 25px; max-width: 1500px; margin: auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  h1 { font-size: 25px; margin: 0 0 5px; }
+  h2 { font-size: 18px; margin: 18px 0 12px; }
+  h2:first-child { margin-top: 0; }
+  .sub { color: var(--muted); margin-bottom: 22px; }
+
+  /* ---------- shared widgets ---------- */
+  .grid { display: grid; gap: 15px; }
+  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    min-width: 0; /* prevents stat-value/number overflow from clipping the card */
+  }
+  .stat-label { color: var(--muted); font-size: 13px; }
+  .stat-value { font-size: 28px; font-weight: 800; margin-top: 5px; line-height: 1.2; }
+  .stat-note { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .toolbar .grow { flex: 1; min-width: 160px; }
+
+  input, select, textarea {
+    border: 1px solid #d9dfda;
+    border-radius: 10px;
+    background: #fff;
+    padding: 10px 12px;
+    color: var(--text);
+    outline: none;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px #3a5a4014;
+  }
+
+  button.primary { background: var(--primary); color: #fff; border: 0; padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+  button.secondary { background: #eef2ee; color: var(--primary2); border: 0; padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+  button.danger { background: #fbecec; color: var(--danger); border: 0; padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+  button.primary:hover, button.secondary:hover { filter: brightness(0.97); }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th {
+    font-size: 12px; color: var(--muted); font-weight: 700;
+    background: #fafbfa;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; max-height: 65vh; }
+
+  .badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+  .received { background: #e8f4eb; color: #28703f; }
+  .notheld { background: #fff1dc; color: #98651c; }
+  .pending { background: #fce9e9; color: #a43e3e; }
+  .open { background: #fce9e9; color: #a43e3e; }
+  .resolved { background: #e8f4eb; color: #28703f; }
+
+  /* ---------- weekly board ---------- */
+  .week { display: grid; grid-template-columns: repeat(6, minmax(250px, 1fr)); gap: 12px; overflow: auto; padding: 4px 4px 8px; }
+  .daycol { min-width: 250px; }
+  .dayhead {
+    /* Not sticky: a sticky header here used to overlap and hide the first
+       report card in each column as the page scrolled. Kept as a normal
+       block header instead. */
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .dayhead-left .dayname { font-weight: 800; font-size: 16px; }
+  .dayhead-left .daydate { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .day-badge {
+    font-size: 12px;
+    font-weight: 800;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #eef2ee;
+    color: #4d574f;
+    white-space: nowrap;
+  }
+  .day-badge.pending {
+    background: #fce9e9;
+    color: #a43e3e;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .day-badge.pending:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(164, 62, 62, .3); }
+
+  .report-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 16px rgba(24, 35, 27, .04);
+  }
+  .report-card .mandal { font-weight: 800; font-size: 15px; margin-bottom: 10px; }
+  .info-row { display: flex; gap: 10px; }
+  .info-box {
+    flex: 1;
+    min-width: 0;
+    background: #f4f5f4;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .info-label { font-size: 11px; color: var(--muted); }
+  .info-value { font-size: 20px; font-weight: 800; margin-top: 4px; color: var(--text); }
+  .report-card.not-held .info-row { background: #fff8ec; border-radius: 10px; }
+  .report-card.not-held .info-box.full { background: #fff1dc; }
+  .report-card.not-held .info-box.full .info-value { color: #98651c; font-size: 15px; }
+
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+
+  .notice { padding: 12px 14px; border-radius: 10px; background: #eef5ef; color: #315b3b; margin-bottom: 16px; }
+  .error { background: #fff0f0; color: #9c3b3b; }
+  .success { background: #edf7ef; color: #28663a; }
+
+  /* ---------- login ---------- */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: linear-gradient(135deg, #f4f7f3, #e8eee9); }
+  .login-card { width: min(420px, 100%); background: #fff; padding: 30px; border-radius: 20px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+  .login-card h1 { margin-bottom: 6px; }
+  .login-form { display: grid; gap: 12px; margin-top: 22px; }
+  .login-form button { margin-top: 4px; }
+
+  /* ---------- forms ---------- */
+  .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 12px; font-weight: 700; color: #59625b; }
+  .full { grid-column: 1 / -1; }
+
+  /* ---------- modal ---------- */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: #17201866;
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; z-index: 50;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal { width: min(760px, 100%); max-height: 90vh; overflow: auto; background: #fff; border-radius: 18px; padding: 22px; box-shadow: 0 20px 60px #0003; }
+  .modal-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+  .close { border: 0; background: #f0f2f0; border-radius: 8px; width: 34px; height: 34px; }
+
+  .pending-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px;
+  }
+  .import-preview-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+  .import-fail-card { border: 1px solid var(--line); border-left: 4px solid var(--danger); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .import-fail-reason { font-size: 12px; color: var(--danger); font-weight: 700; margin-bottom: 4px; }
+  .import-raw { white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+
+  .form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  .sidebar-backdrop {
+    position: fixed; inset: 0; background: rgba(23, 32, 24, .45);
+    z-index: 19; display: none;
+  }
+  .sidebar-backdrop.show { display: block; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1050px) {
+    .sidebar { width: 220px; }
+    .main { margin-left: 220px; }
+    .week { grid-template-columns: repeat(3, minmax(250px, 1fr)); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 760px) {
+    .sidebar { display: none; }
+    .sidebar.open { display: block; width: 78vw; max-width: 280px; box-shadow: 10px 0 30px #0002; }
+    .main { margin-left: 0; }
+    .topbar { padding: 0 15px; }
+    .menu { display: block; border: 0; background: #eef2ee; border-radius: 9px; width: 38px; height: 38px; margin-right: 10px; flex-shrink: 0; }
+    .top-title { display: flex; align-items: center; }
+    .top-title span#pageTitle { font-size: 16px; }
+    .content { padding: 14px; }
+    .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .stat-value { font-size: 22px; }
+    .card { padding: 14px; }
+    .week { grid-template-columns: repeat(6, minmax(270px, 1fr)); }
+    .form-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 20px; }
+    .table-wrap { margin: 0 -1px; max-height: 55vh; }
+    th, td { padding: 9px 8px; font-size: 13px; }
+    .userbox .email { display: none; }
+    .toolbar { gap: 8px; }
+    .toolbar > input, .toolbar > select, .toolbar > button { flex: 1 1 100%; min-width: 0; }
+    .toolbar > .grow { flex: 1 1 100%; }
+    .modal { padding: 16px; border-radius: 14px; max-height: 92vh; }
+    .modal-head { margin-bottom: 12px; }
+    .pending-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .pending-row button { width: 100%; }
+  }
+  @media (max-width: 480px) {
+    .week { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .info-row { flex-direction: column; }
+    .info-box { padding: 8px 10px; }
+    .info-value { font-size: 18px; }
+    .form-actions { flex-direction: column-reverse; }
+    .form-actions button { width: 100%; }
+    .rc-top { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .modal-head h2 { font-size: 16px; }
+    .content { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loginView" class="login">
+  <div class="login-card">
+    <h1>Sabha Reports</h1>
+    <div class="sub">Sign in to manage weekly Sabha reports.</div>
+    <form id="loginForm" class="login-form">
+      <input id="email" type="email" placeholder="Email" required autocomplete="email">
+      <input id="password" type="password" placeholder="Password" required autocomplete="current-password">
+      <button class="primary" type="submit">Sign in</button>
+      <div id="loginMsg"></div>
+    </form>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar">
+    <div class="brand">Sabha <span>Reports</span></div>
+    <nav class="nav">
+      <button data-page="dashboard" class="active">Dashboard</button>
+      <button data-page="reports">Reports</button>
+      <button data-page="queries">Review Queries</button>
+      <button data-page="config">Sabha Config</button>
+    </nav>
+    <div style="position:absolute;left:14px;right:14px;bottom:18px">
+      <button id="logoutBtn" class="secondary" style="width:100%">Sign out</button>
+    </div>
+  </aside>
+  <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="top-title"><button id="menuBtn" class="menu">☰</button><span id="pageTitle">Dashboard</span></div>
+      <div class="userbox"><span id="userEmail" class="email"></span><span class="avatar">S</span></div>
+    </header>
+
+    <section class="content">
+      <div id="globalMsg"></div>
+
+      <div id="page-dashboard" class="page active">
+        <h1>Weekly Sabha Board</h1>
+        <div class="sub">Expected gatherings come from Sabha Config. Only received reports are shown as cards — click "Pending" on any day to see which Mandals haven't reported yet.</div>
+        <div class="toolbar">
+          <input id="weekDate" type="date">
+          <button id="prevWeek" class="secondary">← Previous</button>
+          <button id="todayWeek" class="secondary">Current Week</button>
+          <button id="nextWeek" class="secondary">Next →</button>
+          <span class="grow"></span>
+          <button id="refreshBtn" class="secondary">↻ Refresh</button>
+        </div>
+        <div id="stats" class="grid stats"></div>
+        <div id="weekBoard" class="week"></div>
+      </div>
+
+      <div id="page-reports" class="page">
+        <h1>Reports</h1>
+        <div class="sub">All submitted Sabha reports from Supabase.</div>
+        <div class="toolbar">
+          <input id="reportSearch" class="grow" placeholder="Search Mandal, area or date">
+          <input id="reportDate" type="date">
+          <select id="reportStatus">
+            <option value="">All statuses</option>
+            <option value="received">Received</option>
+            <option value="not_held">Sabha not held</option>
+          </select>
+          <button id="importWaBtn" class="secondary">⬆ Import WhatsApp .txt</button>
+          <input id="waFile" type="file" accept=".txt" class="hidden">
+          <button id="addReportBtn" class="primary">+ Add Report</button>
+        </div>
+        <div class="card table-wrap"><table><thead><tr><th>Date</th><th>Day</th><th>Area</th><th>Mandal</th><th>Type</th><th>Attendance</th><th>Saints</th><th>Status</th><th>Action</th></tr></thead><tbody id="reportsBody"></tbody></table></div>
+      </div>
+
+      <div id="page-queries" class="page">
+        <h1>Review Queries</h1>
+        <div class="sub">Messages that could not be decoded automatically — including from WhatsApp imports — can be reviewed and resolved here.</div>
+        <div class="toolbar"><select id="queryStatus"><option value="open">Open</option><option value="resolved">Resolved</option><option value="">All</option></select><button id="refreshQueries" class="secondary">↻ Refresh</button></div>
+        <div id="queriesList" class="grid"></div>
+      </div>
+
+      <div id="page-config" class="page">
+        <h1>Sabha Config</h1>
+        <div class="sub">Manage the master Mandal and weekly Sabha schedule. Dashboard expectations are generated from these records.</div>
+        <div class="notice">Current relational master: <b id="masterCount">0</b> Mandals / schedules.</div>
+        <div class="toolbar">
+          <input id="configSearch" class="grow" placeholder="Search Mandal or area">
+          <select id="configDay"><option value="">All days</option><option>સોમવાર</option><option>મંગળવાર</option><option>બુધવાર</option><option>ગુરુવાર</option><option>શુક્રવાર</option><option>શનિવાર</option></select>
+          <button id="addConfigBtn" class="primary">+ Add Mandal</button>
+        </div>
+        <div class="card table-wrap"><table><thead><tr><th>Day</th><th>Area</th><th>Mandal</th><th>Type</th><th>Action</th></tr></thead><tbody id="configBody"></tbody></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modalBackdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head"><h2 id="modalTitle">Add Report</h2><button id="modalClose" class="close">×</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+  'use strict';
+
+  // ---------- setup ----------
+  const SUPABASE_URL = 'https://ohznwnqaxobgwtqttgum.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_E2hj8FsegqeaQymEFwywkA_D28AuC3u';
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  const DAYS = ['સોમવાર', 'મંગળવાર', 'બુધવાર', 'ગુરુવાર', 'શુક્રવાર', 'શનિવાર'];
+
+  const state = {
+    mandals: [],
+    schedules: [],
+    reports: [],
+    queries: [],
+    page: 'dashboard',
+    weekStart: null,
+    dataLoaded: false, // guards against loading data twice on initial auth
+  };
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- small helpers ----------
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    }[c]));
+  }
+
+  function msg(text, type = 'success') {
+    $('globalMsg').innerHTML = text ? `<div class="notice ${type}">${esc(text)}</div>` : '';
+    if (text) setTimeout(() => { $('globalMsg').innerHTML = ''; }, 4000);
+  }
+
+  function localDate(d = new Date()) {
+    const x = new Date(d);
+    x.setMinutes(x.getMinutes() - x.getTimezoneOffset());
+    return x.toISOString().slice(0, 10);
+  }
+
+  function parseDate(s) { return new Date(s + 'T00:00:00'); }
+
+  function mondayOf(date) {
+    const d = parseDate(date);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setDate(d.getDate() + diff);
+    return localDate(d);
+  }
+
+  function addDays(date, n) {
+    const d = parseDate(date);
+    d.setDate(d.getDate() + n);
+    return localDate(d);
+  }
+
+  function dayLabelForDate(date) {
+    const jsDay = parseDate(date).getDay(); // 0=Sun..6=Sat
+    const idx = jsDay === 0 ? 6 : jsDay - 1; // 0=Mon..5=Sat, 6=Sun (unused, no Sunday sabha)
+    return DAYS[idx] || null;
+  }
+
+  function formatDate(s) {
+    if (!s) return '';
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  function typeLabel(v) { return v ? 'Yuvak' : 'Regular'; }
+  function statusBadge(s) {
+    return s === 'not_held'
+      ? '<span class="badge notheld">Sabha not held</span>'
+      : '<span class="badge received">Received</span>';
+  }
+
+  // ---------- navigation ----------
+  function showPage(page) {
+    state.page = page;
+    document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
+    $('page-' + page).classList.add('active');
+    document.querySelectorAll('.nav button').forEach(x => x.classList.toggle('active', x.dataset.page === page));
+    $('pageTitle').textContent = { dashboard: 'Dashboard', reports: 'Reports', queries: 'Review Queries', config: 'Sabha Config' }[page];
+    $('sidebar').classList.remove('open');
+    $('sidebarBackdrop').classList.remove('show');
+    if (page === 'dashboard') renderDashboard();
+    if (page === 'reports') renderReports();
+    if (page === 'queries') renderQueries();
+    if (page === 'config') renderConfig();
+  }
+
+  // ---------- data loading ----------
+  function loadCaches() {
+    const mandalMap = new Map(state.mandals.map(m => [m.id, m]));
+    state.schedules = state.schedules.map(s => ({ ...s, mandal: mandalMap.get(s.mandal_id) }));
+  }
+
+  async function loadAll() {
+    const [m, s, r, q] = await Promise.all([
+      sb.from('sabha_mandals').select('id,mandal,area,yuvak_mandal').order('mandal'),
+      sb.from('sabha_schedules').select('id,mandal_id,sabha_day').order('sabha_day'),
+      sb.from('sabha_reports').select('id,date,day,area,mandal,yuvak_mandal,attendance,saints_present,status,schedule_id,source_message,source_message_id,created_at').order('date', { ascending: false }).limit(5000),
+      sb.from('sabha_queries').select('id,raw_message,status,created_at').order('created_at', { ascending: false }).limit(1000),
+    ]);
+    for (const x of [m, s, r, q]) if (x.error) throw x.error;
+    state.mandals = m.data || [];
+    state.schedules = s.data || [];
+    state.reports = r.data || [];
+    state.queries = q.data || [];
+    loadCaches();
+    $('masterCount').textContent = state.schedules.length;
+  }
+
+  function reportsByKey() {
+    // Most recent report per (schedule, date) pair, in case of duplicates.
+    const map = new Map();
+    for (const r of state.reports) {
+      if (!r.schedule_id) continue;
+      const k = `${r.schedule_id}|${r.date}`;
+      const existing = map.get(k);
+      if (!existing || new Date(r.created_at || 0) > new Date(existing.created_at || 0)) map.set(k, r);
+    }
+    return map;
+  }
+
+  // ---------- dashboard ----------
+  function renderDashboard() {
+    if (!state.weekStart) return;
+    const rm = reportsByKey();
+    let expected = 0, received = 0, pending = 0, notHeld = 0;
+
+    $('weekBoard').innerHTML = DAYS.map((day, i) => {
+      const date = addDays(state.weekStart, i);
+      const schedules = state.schedules.filter(s => s.sabha_day === day && s.mandal);
+      expected += schedules.length;
+
+      let cards = '';
+      let dayReceived = 0, dayPending = 0;
+
+      for (const s of schedules) {
+        const r = rm.get(`${s.id}|${date}`);
+        if (r) {
+          dayReceived++; received++;
+          if (r.status === 'not_held') {
+            notHeld++;
+            cards += `<div class="report-card not-held">
+              <div class="mandal">${esc(s.mandal.mandal)}</div>
+              <div class="info-row">
+                <div class="info-box full">
+                  <div class="info-label">Status</div>
+                  <div class="info-value">Sabha not held</div>
+                </div>
+              </div>
+            </div>`;
+          } else {
+            cards += `<div class="report-card">
+              <div class="mandal">${esc(s.mandal.mandal)}</div>
+              <div class="info-row">
+                <div class="info-box">
+                  <div class="info-label">હરિભક્તો / યુવકો</div>
+                  <div class="info-value">${esc(r.attendance ?? 0)}</div>
+                </div>
+                <div class="info-box">
+                  <div class="info-label">સંતો Present?</div>
+                  <div class="info-value">${r.saints_present ? 'હા' : 'ના'}</div>
+                </div>
+              </div>
+            </div>`;
+          }
+        } else {
+          dayPending++; pending++;
+        }
+      }
+
+      // Only received reports are shown as cards. Pending Mandals are
+      // reachable via the clickable badge in the day header, which opens
+      // a list (see showPendingModal) instead of cluttering the board.
+      const body = schedules.length === 0
+        ? '<div class="card empty">No scheduled gatherings</div>'
+        : (cards || '<div class="card empty">No reports received yet</div>');
+
+      const badgeHtml = dayPending > 0
+        ? `<span class="day-badge pending" data-date="${date}" title="Click to see pending Mandals">${dayPending} Pending</span>`
+        : `<span class="day-badge">${dayReceived}/${schedules.length}</span>`;
+
+      return `<div class="daycol">
+        <div class="dayhead">
+          <div class="dayhead-left">
+            <div class="dayname">${day}</div>
+            <div class="daydate">${formatDate(date)}</div>
+          </div>
+          ${badgeHtml}
+        </div>
+        ${body}
+      </div>`;
+    }).join('');
+
+    $('stats').innerHTML = [
+      ['Expected', expected, 'Weekly scheduled gatherings'],
+      ['Received', received, 'Submitted reports'],
+      ['Pending', pending, 'No report received'],
+      ['Sabha not held', notHeld, 'Received with not-held status'],
+    ].map(x => `<div class="card"><div class="stat-label">${x[0]}</div><div class="stat-value">${x[1]}</div><div class="stat-note">${x[2]}</div></div>`).join('');
+
+    document.querySelectorAll('.day-badge.pending').forEach(el => {
+      el.onclick = () => showPendingModal(el.dataset.date);
+    });
+  }
+
+  function showPendingModal(date) {
+    const day = dayLabelForDate(date);
+    const rm = reportsByKey();
+    const pendingSchedules = state.schedules.filter(s => s.mandal && s.sabha_day === day && !rm.has(`${s.id}|${date}`));
+
+    const rows = pendingSchedules.map(s => `
+      <div class="pending-row">
+        <div>
+          <div class="mandal">${esc(s.mandal.mandal)}</div>
+          <div class="meta">${esc(s.mandal.area)} · ${typeLabel(s.mandal.yuvak_mandal)}</div>
+        </div>
+        <button class="secondary" onclick="closeModal();reportForm({scheduleId:'${s.id}', date:'${date}'})">+ Add report</button>
+      </div>`).join('');
+
+    openModal(`Pending · ${day || ''} · ${formatDate(date)}`, rows || '<div class="empty">Nothing pending for this day 🎉</div>');
+  }
+
+  // ---------- reports page ----------
+  function renderReports() {
+    const search = ($('reportSearch').value || '').toLowerCase().trim();
+    const date = $('reportDate').value;
+    const status = $('reportStatus').value;
+    const rows = state.reports.filter(r =>
+      (!date || r.date === date) &&
+      (!status || r.status === status) &&
+      (!search || `${r.mandal} ${r.area} ${r.date} ${r.day}`.toLowerCase().includes(search))
+    );
+    $('reportsBody').innerHTML = rows.length
+      ? rows.map(r => `<tr>
+          <td>${formatDate(r.date)}</td>
+          <td>${esc(r.day)}</td>
+          <td>${esc(r.area)}</td>
+          <td>${esc(r.mandal)}</td>
+          <td>${typeLabel(r.yuvak_mandal)}</td>
+          <td>${r.status === 'not_held' ? '—' : esc(r.attendance ?? 0)}</td>
+          <td>${r.saints_present ? 'Yes' : 'No'}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td><button class="secondary" onclick="editReport('${r.id}')">Edit</button></td>
+        </tr>`).join('')
+      : `<tr><td colspan="9" class="empty">No reports found.</td></tr>`;
+  }
+
+  // ---------- queries page ----------
+  function renderQueries() {
+    const filter = $('queryStatus').value;
+    const rows = state.queries.filter(q => !filter || q.status === filter);
+    $('queriesList').innerHTML = rows.length
+      ? rows.map(q => `<div class="card">
+          <div class="rc-top"><b>${formatDate(q.created_at?.slice(0, 10))}</b><span class="badge ${q.status === 'resolved' ? 'resolved' : 'open'}">${esc(q.status)}</span></div>
+          <div style="white-space:pre-wrap;margin:12px 0">${esc(q.raw_message)}</div>
+          ${q.status !== 'resolved' ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="primary" onclick="resolveQueryWithReport('${q.id}')">Resolve → Enter report</button>
+            <button class="secondary" onclick="resolveQuery('${q.id}')">Dismiss (no report)</button>
+          </div>` : ''}
+        </div>`).join('')
+      : `<div class="card empty">No queries found.</div>`;
+  }
+
+  // ---------- config page ----------
+  function renderConfig() {
+    const search = ($('configSearch').value || '').toLowerCase().trim();
+    const day = $('configDay').value;
+    const rows = state.schedules.filter(s => s.mandal && (!day || s.sabha_day === day) &&
+      (!search || `${s.mandal.mandal} ${s.mandal.area}`.toLowerCase().includes(search)));
+    $('configBody').innerHTML = rows.length
+      ? rows.map(s => `<tr>
+          <td>${esc(s.sabha_day)}</td>
+          <td>${esc(s.mandal.area)}</td>
+          <td>${esc(s.mandal.mandal)}</td>
+          <td>${typeLabel(s.mandal.yuvak_mandal)}</td>
+          <td><button class="secondary" onclick="editConfig('${s.mandal.id}','${s.id}')">Edit</button></td>
+        </tr>`).join('')
+      : `<tr><td colspan="5" class="empty">No configuration found.</td></tr>`;
+  }
+
+  // ---------- modal ----------
+  function openModal(title, body) {
+    $('modalTitle').textContent = title;
+    $('modalBody').innerHTML = body;
+    $('modalBackdrop').classList.add('show');
+  }
+  function closeModal() { $('modalBackdrop').classList.remove('show'); }
+
+  function configForm(m = null, s = null) {
+    openModal(m ? 'Edit Mandal' : 'Add Mandal', `<form id="configForm" class="form-grid">
+      <div class="field"><label>Mandal</label><input name="mandal" required value="${esc(m?.mandal || '')}"></div>
+      <div class="field"><label>Area</label><input name="area" required value="${esc(m?.area || '')}"></div>
+      <div class="field"><label>Sabha day</label><select name="day" required>${DAYS.map(d => `<option ${d === s?.sabha_day ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+      <div class="field"><label>Type</label>
+        <select name="yuvak">
+          <option value="false" ${!m?.yuvak_mandal ? 'selected' : ''}>Regular</option>
+          <option value="true" ${m?.yuvak_mandal ? 'selected' : ''}>Yuvak</option>
+        </select>
+      </div>
+      <div class="full form-actions">
+        <button type="button" class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary">Save</button>
+      </div>
+    </form>`);
+
+    $('configForm').onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        if (m) {
+          const { error } = await sb.from('sabha_mandals')
+            .update({ mandal: f.get('mandal'), area: f.get('area'), yuvak_mandal: f.get('yuvak') === 'true' })
+            .eq('id', m.id);
+          if (error) throw error;
+          const { error: e2 } = await sb.from('sabha_schedules').update({ sabha_day: f.get('day') }).eq('id', s.id);
+          if (e2) throw e2;
+        } else {
+          const { data: newM, error } = await sb.from('sabha_mandals')
+            .insert({ mandal: f.get('mandal'), area: f.get('area'), yuvak_mandal: f.get('yuvak') === 'true' })
+            .select().single();
+          if (error) throw error;
+          const { error: e2 } = await sb.from('sabha_schedules').insert({ mandal_id: newM.id, sabha_day: f.get('day') });
+          if (e2) throw e2;
+        }
+        closeModal();
+        await loadAll();
+        renderConfig();
+        renderDashboard();
+        msg('Configuration saved.');
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+
+  // opts: { scheduleId, date, queryId, prefillSource, report, prefillArea, prefillAttendance, prefillSaints }
+  // report (when editing an existing entry) takes priority over scheduleId/date.
+  // prefillArea/prefillAttendance/prefillSaints are used only when scheduleId/report
+  // don't already resolve those fields — they carry over whatever a WhatsApp
+  // import query could read automatically (see resolveQueryWithReport).
+  function reportForm(opts = {}) {
+    const {
+      scheduleId = null, date = null, queryId = null, prefillSource = null, report = null,
+      prefillArea = null, prefillAttendance = null, prefillSaints = false,
+    } = opts;
+    const editing = !!report;
+    const initialScheduleId = editing ? report.schedule_id : scheduleId;
+    const initialSchedule = state.schedules.find(s => s.id === initialScheduleId);
+
+    const areas = [...new Set(state.schedules.filter(s => s.mandal).map(s => s.mandal.area))].sort();
+    const initialArea = initialSchedule?.mandal?.area || (prefillArea && areas.includes(prefillArea) ? prefillArea : '');
+    const areaOptions = areas.map(a => `<option value="${esc(a)}" ${a === initialArea ? 'selected' : ''}>${esc(a)}</option>`).join('');
+
+    function mandalOptionsFor(area) {
+      return state.schedules.filter(s => s.mandal && (!area || s.mandal.area === area))
+        .sort((a, b) => a.mandal.mandal.localeCompare(b.mandal.mandal))
+        .map(s => `<option value="${s.id}" data-area="${esc(s.mandal.area)}" data-day="${esc(s.sabha_day)}" ${s.id === initialScheduleId ? 'selected' : ''}>${esc(s.mandal.mandal)} (${typeLabel(s.mandal.yuvak_mandal)})</option>`)
+        .join('');
+    }
+
+    const title = editing ? 'Edit Report' : (queryId ? 'Resolve Query · Enter Report' : 'Add Report');
+
+    openModal(title, `<form id="reportForm" class="form-grid">
+      ${queryId ? `<input type="hidden" name="queryId" value="${esc(queryId)}">` : ''}
+      ${editing ? `<input type="hidden" name="reportId" value="${esc(report.id)}">` : ''}
+      <div class="field"><label>Kshetra (Area)</label><select name="area" id="rfArea"><option value="">All Kshetra</option>${areaOptions}</select></div>
+      <div class="field"><label>Mandal</label><select name="schedule" id="rfMandal" required><option value="">Select Mandal</option>${mandalOptionsFor(initialArea)}</select></div>
+      <div class="field"><label>Sabha day</label><input id="rfDay" value="${esc(initialSchedule?.sabha_day || '')}" disabled></div>
+      <div class="field"><label>Date</label><input name="date" type="date" required value="${editing ? report.date : (date || localDate())}"></div>
+      <div class="field"><label>Attendance</label><input name="attendance" type="number" min="0" value="${editing ? (report.attendance ?? 0) : (prefillAttendance ?? 0)}"></div>
+      <div class="field"><label>Saints present</label><select name="saints">
+        <option value="false" ${!(editing ? report.saints_present : prefillSaints) ? 'selected' : ''}>No</option>
+        <option value="true" ${(editing ? report.saints_present : prefillSaints) ? 'selected' : ''}>Yes</option>
+      </select></div>
+      <div class="field full"><label>Status</label><select name="status">
+        <option value="received" ${!(editing && report.status === 'not_held') ? 'selected' : ''}>Received</option>
+        <option value="not_held" ${editing && report.status === 'not_held' ? 'selected' : ''}>Sabha not held</option>
+      </select></div>
+      <div class="field full"><label>Source message${queryId || editing ? '' : ' (optional)'}</label><textarea name="source" rows="4">${esc(editing ? (report.source_message || '') : (prefillSource || ''))}</textarea></div>
+      <div class="full form-actions">
+        <button type="button" class="secondary" onclick="closeModal()">Cancel</button>
+        <button class="primary">${editing ? 'Save Changes' : 'Save Report'}</button>
+      </div>
+    </form>`);
+
+    // Kshetra narrows which Mandals are listed; picking a Mandal directly
+    // (without choosing a Kshetra first) auto pre-fills its Kshetra, and
+    // the Sabha day is always auto-filled from the Mandal's schedule —
+    // never a manual pick — so there's nothing to forget to set.
+    $('rfArea').onchange = () => {
+      const area = $('rfArea').value;
+      $('rfMandal').innerHTML = '<option value="">Select Mandal</option>' + mandalOptionsFor(area);
+      $('rfDay').value = '';
+    };
+    $('rfMandal').onchange = () => {
+      const opt = $('rfMandal').selectedOptions[0];
+      if (opt && opt.value) {
+        if (opt.dataset.area) $('rfArea').value = opt.dataset.area;
+        $('rfDay').value = opt.dataset.day || '';
+      } else {
+        $('rfDay').value = '';
+      }
+    };
+
+    $('reportForm').onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const sid = f.get('schedule');
+      const rstate = state.schedules.find(s => s.id === sid);
+      if (!rstate) return;
+
+      const reportDate = f.get('date');
+      const editingId = f.get('reportId') || null;
+      // Duplicate guard: one report per Mandal-schedule per date, whether
+      // added here directly, via resolving a query, or while editing
+      // (an edit is allowed to keep its own existing schedule+date pair).
+      const exists = state.reports.find(r => r.schedule_id === sid && r.date === reportDate && r.id !== editingId);
+      if (exists) { alert('A report already exists for this Mandal on this date. Skipping to avoid a duplicate entry.'); return; }
+
+      try {
+        const m = rstate.mandal;
+        const payload = {
+          date: reportDate,
+          day: rstate.sabha_day,
+          area: m.area,
+          mandal: m.mandal,
+          yuvak_mandal: m.yuvak_mandal,
+          attendance: Number(f.get('attendance') || 0),
+          saints_present: f.get('saints') === 'true',
+          status: f.get('status'),
+          schedule_id: sid,
+          source_message: f.get('source') || null,
+          source_message_id: editing ? report.source_message_id : null,
+        };
+
+        if (editingId) {
+          const { error } = await sb.from('sabha_reports').update(payload).eq('id', editingId);
+          if (error) throw error;
+        } else {
+          const { error } = await sb.from('sabha_reports').insert(payload);
+          if (error) throw error;
+        }
+
+        const qid = f.get('queryId');
+        if (qid) {
+          const { error: qErr } = await sb.from('sabha_queries').update({ status: 'resolved' }).eq('id', qid);
+          if (qErr) throw qErr;
+        }
+
+        closeModal();
+        await loadAll();
+        renderReports();
+        renderDashboard();
+        if (qid) renderQueries();
+        msg(qid ? 'Report saved and query resolved.' : (editingId ? 'Report updated.' : 'Report saved.'));
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+
+  function resolveQueryWithReport(id) {
+    const q = state.queries.find(x => x.id === id);
+    if (!q) return;
+
+    const fields = extractLooseFields(q.raw_message);
+    const areas = [...new Set(state.schedules.filter(s => s.mandal).map(s => s.mandal.area))];
+    const guessedArea = guessArea(fields.area, areas);
+
+    // Try to resolve straight to a schedule (Kshetra + Mandal + Day all
+    // pre-filled together) if the Mandal name is an exact match; prefer the
+    // schedule whose day matches what the message said, in case the Mandal
+    // has more than one weekly slot.
+    let matchedScheduleId = null;
+    if (fields.mandal) {
+      const mandalName = fields.mandal.trim();
+      const mandal = state.mandals.find(m => m.mandal.trim() === mandalName);
+      if (mandal) {
+        const schedsForMandal = state.schedules.filter(s => s.mandal_id === mandal.id);
+        const dayMatch = fields.day && schedsForMandal.find(s => s.sabha_day === fields.day.trim());
+        matchedScheduleId = (dayMatch || schedsForMandal[0])?.id || null;
+      }
+    }
+
+    const prefillDateIso = fields.date ? ddmmyyyyToIso(fields.date) : null;
+    const attNum = fields.attendance ? parseInt(String(fields.attendance).replace(/\D/g, ''), 10) : NaN;
+    const prefillAttendance = Number.isNaN(attNum) ? null : attNum;
+    const prefillSaints = fields.saints ? /હા|yes/i.test(fields.saints) : false;
+
+    reportForm({
+      queryId: id,
+      prefillSource: q.raw_message,
+      scheduleId: matchedScheduleId,
+      prefillArea: matchedScheduleId ? null : guessedArea,
+      date: prefillDateIso,
+      prefillAttendance,
+      prefillSaints,
+    });
+  }
+
+  function editReport(id) {
+    const report = state.reports.find(r => r.id === id);
+    if (!report) return;
+    reportForm({ report });
+  }
+
+  async function resolveQuery(id) {
+    const { error } = await sb.from('sabha_queries').update({ status: 'resolved' }).eq('id', id);
+    if (error) { alert(error.message); return; }
+    await loadAll();
+    renderQueries();
+    msg('Query resolved.');
+  }
+
+  // ---------- WhatsApp chat-export import ----------
+  // Splits a raw WhatsApp .txt export into individual messages using the
+  // "DD/MM/YYYY, HH:MM - Sender: text" (or "[DD/MM/YYYY, HH:MM:SS AM] Sender: text")
+  // timestamp pattern that starts every new message. Lines that don't match
+  // are treated as a continuation of the previous message (multi-line texts).
+  const WA_MESSAGE_START = /^\[?(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s+(\d{1,2}:\d{2}(?::\d{2})?\s?(?:[ap]\.?m\.?)?)\]?\s*-?\s*([^:]{1,80}?):\s(.*)$/i;
+
+  // WhatsApp exports often include invisible bidi/formatting marks (e.g. a
+  // left-to-right mark right before the timestamp) and use a narrow
+  // no-break space between the time and AM/PM. Strip/normalize those first
+  // so the timestamp pattern above matches reliably.
+  function sanitizeWaLine(line) {
+    return line
+      .replace(/[\u200E\u200F\u202A-\u202E\uFEFF]/g, '')
+      .replace(/[\u00A0\u202F]/g, ' ');
+  }
+
+  function splitWhatsappMessages(text) {
+    const lines = text.split(/\r?\n/);
+    const messages = [];
+    let cur = null;
+    for (const rawLine of lines) {
+      const line = sanitizeWaLine(rawLine);
+      const m = line.match(WA_MESSAGE_START);
+      if (m) {
+        if (cur) messages.push(cur);
+        cur = { date: m[1], time: m[2], sender: m[3].trim(), body: [m[4]] };
+      } else if (cur) {
+        cur.body.push(line);
+      }
+    }
+    if (cur) messages.push(cur);
+    return messages
+      .map(m => ({ ...m, text: m.body.join('\n').trim() }))
+      .filter(m => m.text);
+  }
+
+  // Recognized Sabha-report field labels (Gujarati), matched at the start
+  // of a trimmed line regardless of whether ":" or ":-" separates the value.
+  const SABHA_FIELD_PATTERNS = [
+    { key: 'area', re: /^ક્ષેત્ર/ },
+    { key: 'date', re: /^તારીખ/ },
+    { key: 'day', re: /^વાર/ },
+    { key: 'mandal', re: /^મંડળ/ },
+    { key: 'attendance', re: /^હાજરી/ },
+    { key: 'saints', re: /^(પૂજ્ય\s*)?સંતો\s*આવેલ/ },
+  ];
+  const SABHA_KEYWORD_HINT = /ક્ષેત્ર|તારીખ|વાર|મંડળ|હાજરી|સંતો\s*આવેલ/;
+
+  function parseSabhaFieldLine(line) {
+    const t = line.trim();
+    for (const f of SABHA_FIELD_PATTERNS) {
+      if (f.re.test(t)) {
+        const value = t.replace(f.re, '').replace(/^[\s:：-]+/, '').trim();
+        return { key: f.key, value };
+      }
+    }
+    return null;
+  }
+
+  function ddmmyyyyToIso(s) {
+    const m = (s || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (!m) return null;
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = '20' + y;
+    d = d.padStart(2, '0'); mo = mo.padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
+
+  // Splits one message's text into per-Mandal report blocks. A shared
+  // ક્ષેત્ર/તારીખ/વાર header (declared once, before the first મંડળ line)
+  // is carried forward onto every Mandal block that follows it.
+  function parseSabhaBlocks(rawText) {
+    const lines = rawText.split('\n');
+    const header = { area: null, date: null, day: null };
+    const records = [];
+    let cur = null;
+    let curLines = [];
+
+    function finalize() {
+      if (cur && cur.mandal) records.push({ ...header, ...cur, raw: curLines.join('\n') });
+    }
+
+    for (const line of lines) {
+      const f = parseSabhaFieldLine(line);
+      if (!f || !f.value) continue;
+      if (f.key === 'mandal') {
+        finalize();
+        cur = { mandal: f.value };
+        curLines = [line.trim()];
+      } else if (f.key === 'attendance' && cur) {
+        cur.attendance = f.value; curLines.push(line.trim());
+      } else if (f.key === 'saints' && cur) {
+        cur.saints = f.value; curLines.push(line.trim());
+      } else if (f.key === 'area' || f.key === 'date' || f.key === 'day') {
+        header[f.key] = f.value;
+        if (cur) curLines.push(line.trim());
+      }
+    }
+    finalize();
+    return records;
+  }
+
+  // Resolves one parsed record against the loaded Mandal/schedule master
+  // data. Returns {ok:true, payload} ready for insert, or {ok:false,
+  // errors, raw} to send to Review Queries for manual resolution.
+  function resolveSabhaRecord(rec) {
+    const errors = [];
+    const iso = ddmmyyyyToIso(rec.date);
+    if (!iso) errors.push('date');
+
+    const day = (rec.day || '').trim();
+    if (!DAYS.includes(day)) errors.push('day');
+
+    const mandalName = (rec.mandal || '').trim();
+    const mandal = state.mandals.find(m => m.mandal.trim() === mandalName);
+    if (!mandal) errors.push('mandal not found in Sabha Config');
+
+    let schedule = null;
+    if (mandal && DAYS.includes(day)) {
+      schedule = state.schedules.find(s => s.mandal_id === mandal.id && s.sabha_day === day);
+      if (!schedule) errors.push('no matching schedule for this Mandal/day');
+    }
+
+    const attendance = parseInt(String(rec.attendance || '').replace(/\D/g, ''), 10);
+    if (Number.isNaN(attendance)) errors.push('attendance');
+
+    const saintsRaw = (rec.saints || '').trim();
+    const saints = /હા|yes/i.test(saintsRaw);
+
+    if (errors.length) return { ok: false, errors, raw: rec.raw };
+
+    return {
+      ok: true,
+      payload: {
+        date: iso,
+        day,
+        area: mandal.area,
+        mandal: mandal.mandal,
+        yuvak_mandal: mandal.yuvak_mandal,
+        attendance,
+        saints_present: saints,
+        status: 'received',
+        schedule_id: schedule.id,
+        source_message: rec.raw,
+        source_message_id: null,
+      },
+    };
+  }
+
+  // Best-effort field reader for a query's raw text: pulls out whatever
+  // ક્ષેત્ર/તારીખ/વાર/મંડળ/હાજરી/સંતો values it can find (last one wins if
+  // repeated), regardless of whether they form a complete, valid record.
+  // Used to pre-fill the manual "Resolve → Enter report" form so the
+  // reviewer only has to fix the part that actually failed.
+  function extractLooseFields(rawText) {
+    const out = { area: null, date: null, day: null, mandal: null, attendance: null, saints: null };
+    for (const line of (rawText || '').split('\n')) {
+      const f = parseSabhaFieldLine(line);
+      if (f && f.value) out[f.key] = f.value;
+    }
+    return out;
+  }
+
+  // Matches a loosely-extracted Kshetra string (which may carry extra notes,
+  // e.g. "રાજકોટ - 2 યુવા") against the known Kshetra list from Sabha Config.
+  function guessArea(rawArea, areasList) {
+    if (!rawArea) return '';
+    const norm = s => s.replace(/\s+/g, ' ').trim();
+    const r = norm(rawArea);
+    return areasList.find(a => norm(a) === r)
+      || areasList.find(a => r.startsWith(norm(a)))
+      || areasList.find(a => r.includes(norm(a)))
+      || '';
+  }
+
+  function importWhatsappText(text) {
+    const messages = splitWhatsappMessages(text);
+    const resolved = [];
+    for (const message of messages) {
+      const blocks = parseSabhaBlocks(message.text);
+      if (blocks.length) {
+        blocks.forEach(b => resolved.push(resolveSabhaRecord(b)));
+      } else if (SABHA_KEYWORD_HINT.test(message.text)) {
+        // Looks like an attempted report but no Mandal line was found at all.
+        resolved.push({ ok: false, errors: ['no Mandal line detected'], raw: message.text });
+      }
+      // Otherwise: unrelated chat message (greetings, media, etc.) — ignored.
+    }
+
+    const successes = resolved.filter(r => r.ok);
+    const failures = resolved.filter(r => !r.ok);
+
+    const seen = new Set();
+    const toInsert = [];
+    let dupCount = 0;
+    for (const r of successes) {
+      const key = `${r.payload.schedule_id}|${r.payload.date}`;
+      const alreadyInDb = state.reports.some(rep => rep.schedule_id === r.payload.schedule_id && rep.date === r.payload.date);
+      if (alreadyInDb || seen.has(key)) { dupCount++; continue; }
+      seen.add(key);
+      toInsert.push(r.payload);
+    }
+
+    return { toInsert, failures, dupCount };
+  }
+
+  function showImportPreview(toInsert, failures, dupCount) {
+    const rowsHtml = toInsert.map(p => `
+      <div class="import-preview-row">
+        <div><b>${esc(p.mandal)}</b> <span class="meta">${esc(p.area)} · ${typeLabel(p.yuvak_mandal)}</span></div>
+        <div>${formatDate(p.date)} · Attendance ${esc(p.attendance)} · Saints ${p.saints_present ? 'Yes' : 'No'}</div>
+      </div>`).join('') || '<div class="empty">None</div>';
+
+    const failHtml = failures.map(f => `
+      <div class="import-fail-card">
+        <div class="import-fail-reason">Could not detect: ${esc(f.errors.join(', '))}</div>
+        <div class="import-raw">${esc(f.raw)}</div>
+      </div>`).join('') || '<div class="empty">None</div>';
+
+    openModal('Import WhatsApp Chat', `
+      <div class="notice">${toInsert.length} report(s) ready to import · ${failures.length} unrecognized (will go to Review Queries) · ${dupCount} duplicate(s) skipped</div>
+      <h2>Ready to import (${toInsert.length})</h2>
+      <div style="max-height:220px;overflow:auto;margin-bottom:6px">${rowsHtml}</div>
+      <h2>Unrecognized — will need manual review (${failures.length})</h2>
+      <div style="max-height:220px;overflow:auto;margin-bottom:16px">${failHtml}</div>
+      <div class="form-actions">
+        <button type="button" class="secondary" onclick="closeModal()">Cancel</button>
+        <button id="confirmImportBtn" class="primary" ${toInsert.length + failures.length === 0 ? 'disabled' : ''}>Import ${toInsert.length + failures.length} item(s)</button>
+      </div>
+    `);
+
+    $('confirmImportBtn').onclick = async () => {
+      try {
+        if (toInsert.length) {
+          const { error } = await sb.from('sabha_reports').insert(toInsert);
+          if (error) throw error;
+        }
+        if (failures.length) {
+          const { error } = await sb.from('sabha_queries').insert(failures.map(f => ({ raw_message: f.raw, status: 'open' })));
+          if (error) throw error;
+        }
+        closeModal();
+        await loadAll();
+        renderReports(); renderQueries(); renderDashboard();
+        msg(`Imported ${toInsert.length} report(s), ${failures.length} sent to Review Queries.`);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  }
+
+  // ---------- auth / bootstrap ----------
+  async function init() {
+    state.weekStart = mondayOf(localDate());
+    $('weekDate').value = state.weekStart;
+
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      await showApp(session);
+    } else {
+      $('loginView').classList.remove('hidden');
+    }
+  }
+
+  async function showApp(session) {
+    $('loginView').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('userEmail').textContent = session.user.email || '';
+    if (state.dataLoaded) return; // avoid double-fetching if the auth listener fires again
+    try {
+      state.dataLoaded = true;
+      await loadAll();
+      renderDashboard();
+    } catch (e) {
+      state.dataLoaded = false;
+      msg(e.message, 'error');
+    }
+  }
+
+  $('loginForm').onsubmit = async e => {
+    e.preventDefault();
+    $('loginMsg').innerHTML = '';
+    const { error } = await sb.auth.signInWithPassword({ email: $('email').value, password: $('password').value });
+    if (error) $('loginMsg').innerHTML = `<div class="notice error">${esc(error.message)}</div>`;
+  };
+
+  sb.auth.onAuthStateChange((_event, session) => {
+    if (session) {
+      showApp(session);
+    } else {
+      state.dataLoaded = false;
+      $('app').classList.add('hidden');
+      $('loginView').classList.remove('hidden');
+    }
+  });
+
+  // ---------- event wiring ----------
+  document.querySelectorAll('.nav button').forEach(b => b.onclick = () => showPage(b.dataset.page));
+  $('menuBtn').onclick = () => {
+    $('sidebar').classList.toggle('open');
+    $('sidebarBackdrop').classList.toggle('show');
+  };
+  $('sidebarBackdrop').onclick = () => {
+    $('sidebar').classList.remove('open');
+    $('sidebarBackdrop').classList.remove('show');
+  };
+  $('logoutBtn').onclick = () => sb.auth.signOut();
+  $('modalClose').onclick = closeModal;
+  $('modalBackdrop').onclick = e => { if (e.target === $('modalBackdrop')) closeModal(); };
+
+  $('weekDate').onchange = () => { state.weekStart = mondayOf($('weekDate').value); $('weekDate').value = state.weekStart; renderDashboard(); };
+  $('prevWeek').onclick = () => { state.weekStart = addDays(state.weekStart, -7); $('weekDate').value = state.weekStart; renderDashboard(); };
+  $('nextWeek').onclick = () => { state.weekStart = addDays(state.weekStart, 7); $('weekDate').value = state.weekStart; renderDashboard(); };
+  $('todayWeek').onclick = () => { state.weekStart = mondayOf(localDate()); $('weekDate').value = state.weekStart; renderDashboard(); };
+  $('refreshBtn').onclick = async () => { try { await loadAll(); renderDashboard(); msg('Data refreshed.'); } catch (e) { msg(e.message, 'error'); } };
+
+  $('reportSearch').oninput = renderReports;
+  $('reportDate').onchange = renderReports;
+  $('reportStatus').onchange = renderReports;
+
+  $('importWaBtn').onclick = () => $('waFile').click();
+  $('waFile').onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const { toInsert, failures, dupCount } = importWhatsappText(text);
+      showImportPreview(toInsert, failures, dupCount);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  $('queryStatus').onchange = renderQueries;
+  $('refreshQueries').onclick = async () => { await loadAll(); renderQueries(); };
+
+  $('configSearch').oninput = renderConfig;
+  $('configDay').onchange = renderConfig;
+  $('addConfigBtn').onclick = () => configForm();
+  $('addReportBtn').onclick = () => reportForm();
+
+  window.editConfig = (mid, sid) => configForm(state.mandals.find(m => m.id === mid), state.schedules.find(s => s.id === sid));
+  window.resolveQuery = resolveQuery;
+  window.resolveQueryWithReport = resolveQueryWithReport;
+  window.reportForm = reportForm;
+  window.editReport = editReport;
+  window.closeModal = closeModal;
+  window.showPendingModal = showPendingModal;
+
+  init();
+</script>
+</body>
+</html>
