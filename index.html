@@ -197,6 +197,17 @@
     box-shadow: 0 4px 16px rgba(24, 35, 27, .04);
   }
   .report-card .mandal { font-weight: 800; font-size: 15px; margin-bottom: 10px; }
+  .yuvak-tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #efeafd;
+    color: #6b46c1;
+    vertical-align: middle;
+    margin-left: 2px;
+  }
   .info-row { display: flex; gap: 10px; }
   .info-box {
     flex: 1;
@@ -419,6 +430,8 @@
         <div class="toolbar">
           <input id="configSearch" class="grow" placeholder="Search Mandal or area">
           <select id="configDay"><option value="">All days</option><option>સોમવાર</option><option>મંગળવાર</option><option>બુધવાર</option><option>ગુરુવાર</option><option>શુક્રવાર</option><option>શનિવાર</option></select>
+          <button id="backupJsonBtn" class="secondary">⬇ Backup (JSON)</button>
+          <button id="backupCsvBtn" class="secondary">⬇ Reports CSV</button>
           <button id="addConfigBtn" class="primary">+ Add Mandal</button>
         </div>
         <div class="card table-wrap"><table><thead><tr><th>Day</th><th>Area</th><th>Mandal</th><th>Type</th><th>Action</th></tr></thead><tbody id="configBody"></tbody></table></div>
@@ -592,7 +605,7 @@
           if (r.status === 'not_held') {
             notHeld++;
             cards += `<div class="report-card not-held">
-              <div class="mandal">${esc(s.mandal.mandal)}</div>
+              <div class="mandal">${esc(s.mandal.mandal)}${s.mandal.yuvak_mandal ? ' <span class="yuvak-tag">Yuvak</span>' : ''}</div>
               <div class="info-row">
                 <div class="info-box full">
                   <div class="info-label">Status</div>
@@ -602,7 +615,7 @@
             </div>`;
           } else {
             cards += `<div class="report-card">
-              <div class="mandal">${esc(s.mandal.mandal)}</div>
+              <div class="mandal">${esc(s.mandal.mandal)}${s.mandal.yuvak_mandal ? ' <span class="yuvak-tag">Yuvak</span>' : ''}</div>
               <div class="info-row">
                 <div class="info-box">
                   <div class="info-label">હરિભક્તો / યુવકો</div>
@@ -830,7 +843,7 @@
       <div class="field"><label>Kshetra (Area)</label><select name="area" id="rfArea"><option value="">All Kshetra</option>${areaOptions}</select></div>
       <div class="field"><label>Mandal</label><select name="schedule" id="rfMandal" required><option value="">Select Mandal</option>${mandalOptionsFor(initialArea)}</select></div>
       <div class="field"><label>Sabha day</label><input id="rfDay" value="${esc(initialSchedule?.sabha_day || '')}" disabled></div>
-      <div class="field"><label>Date</label><input name="date" type="date" required value="${editing ? report.date : (date || localDate())}"></div>
+      <div class="field"><label>Date</label><input name="date" type="date" required value="${editing ? report.date : (date || (queryId ? '' : localDate()))}"></div>
       <div class="field"><label>Attendance</label><input name="attendance" type="number" min="0" value="${editing ? (report.attendance ?? 0) : (prefillAttendance ?? 0)}"></div>
       <div class="field"><label>Saints present</label><select name="saints">
         <option value="false" ${!(editing ? report.saints_present : prefillSaints) ? 'selected' : ''}>No</option>
@@ -840,7 +853,11 @@
         <option value="received" ${!(editing && report.status === 'not_held') ? 'selected' : ''}>Received</option>
         <option value="not_held" ${editing && report.status === 'not_held' ? 'selected' : ''}>Sabha not held</option>
       </select></div>
-      <div class="field full"><label>Source message${queryId || editing ? '' : ' (optional)'}</label><textarea name="source" rows="4">${esc(editing ? (report.source_message || '') : (prefillSource || ''))}</textarea></div>
+      <div class="field full">
+        <label>Source message${queryId || editing ? '' : ' (optional)'}</label>
+        <textarea name="source" id="rfSource" rows="4" placeholder="Paste the WhatsApp message here, then click Parse to fill the fields above from it.">${esc(editing ? (report.source_message || '') : (prefillSource || ''))}</textarea>
+        <button type="button" id="parseSourceBtn" class="secondary" style="margin-top:6px">⇪ Parse from message</button>
+      </div>
       <div class="full form-actions">
         <button type="button" class="secondary" onclick="closeModal()">Cancel</button>
         <button class="primary">${editing ? 'Save Changes' : 'Save Report'}</button>
@@ -864,6 +881,28 @@
       } else {
         $('rfDay').value = '';
       }
+    };
+
+    $('parseSourceBtn').onclick = () => {
+      const raw = $('rfSource').value;
+      if (!raw.trim()) { alert('Paste the WhatsApp message into the Source message box first.'); return; }
+      const info = autofillFromRawMessage(raw);
+
+      if (info.scheduleId) {
+        const sched = state.schedules.find(s => s.id === info.scheduleId);
+        $('rfArea').value = sched?.mandal?.area || '';
+        $('rfArea').dispatchEvent(new Event('change')); // rebuilds the Mandal list for that area
+        $('rfMandal').value = info.scheduleId;
+        $('rfMandal').dispatchEvent(new Event('change')); // fills in the Sabha day
+      } else if (info.area) {
+        $('rfArea').value = info.area;
+        $('rfArea').dispatchEvent(new Event('change'));
+      }
+      if (info.dateIso) $('reportForm').elements.date.value = info.dateIso;
+      if (info.attendance != null) $('reportForm').elements.attendance.value = info.attendance;
+      $('reportForm').elements.saints.value = info.saints ? 'true' : 'false';
+
+      msg(info.scheduleId ? 'Parsed — Mandal matched automatically.' : 'Parsed — pick the Mandal, the rest is filled in.');
     };
 
     $('reportForm').onsubmit = async e => {
@@ -923,42 +962,59 @@
     };
   }
 
-  function resolveQueryWithReport(id) {
-    const q = state.queries.find(x => x.id === id);
-    if (!q) return;
-
-    const fields = extractLooseFields(q.raw_message);
+  // Reads whatever Sabha fields it can out of a raw WhatsApp message and
+  // resolves them against the master data: a schedule (Kshetra+Mandal+Day
+  // together) when the Mandal name matches closely enough, a best-guess
+  // Kshetra otherwise, plus date/attendance/saints. Shared by query
+  // resolution and the Add Report form's "Parse from message" button, so
+  // report data always traces back to the actual chat text instead of
+  // being retyped (and the date never silently defaults to today).
+  function autofillFromRawMessage(rawText) {
+    const fields = extractLooseFields(rawText);
     const areas = [...new Set(state.schedules.filter(s => s.mandal).map(s => s.mandal.area))];
     const guessedArea = guessArea(fields.area, areas);
 
-    // Try to resolve straight to a schedule (Kshetra + Mandal + Day all
-    // pre-filled together) if the Mandal name is an exact match; prefer the
-    // schedule whose day matches what the message said, in case the Mandal
-    // has more than one weekly slot.
+    const dateIso = fields.date ? ddmmyyyyToIso(fields.date) : null;
+    const derivedDay = dateIso ? dayLabelForDate(dateIso) : null;
+
     let matchedScheduleId = null;
     if (fields.mandal) {
-      const mandalName = fields.mandal.trim();
-      const mandal = state.mandals.find(m => m.mandal.trim() === mandalName);
+      const mandal = findClosestMandal(fields.mandal, state.mandals);
       if (mandal) {
         const schedsForMandal = state.schedules.filter(s => s.mandal_id === mandal.id);
-        const dayMatch = fields.day && schedsForMandal.find(s => s.sabha_day === fields.day.trim());
+        const targetDay = derivedDay || (fields.day && fields.day.trim());
+        const dayMatch = targetDay && schedsForMandal.find(s => s.sabha_day === targetDay);
         matchedScheduleId = (dayMatch || schedsForMandal[0])?.id || null;
       }
     }
 
-    const prefillDateIso = fields.date ? ddmmyyyyToIso(fields.date) : null;
     const attNum = fields.attendance ? parseInt(String(fields.attendance).replace(/\D/g, ''), 10) : NaN;
-    const prefillAttendance = Number.isNaN(attNum) ? null : attNum;
-    const prefillSaints = fields.saints ? /હા|yes/i.test(fields.saints) : false;
+    const attendance = Number.isNaN(attNum) ? null : attNum;
+    const saints = fields.saints ? /હા|yes/i.test(fields.saints) : false;
+
+    return {
+      scheduleId: matchedScheduleId,
+      area: matchedScheduleId ? null : guessedArea,
+      dateIso,
+      attendance,
+      saints,
+    };
+  }
+
+  function resolveQueryWithReport(id) {
+    const q = state.queries.find(x => x.id === id);
+    if (!q) return;
+
+    const info = autofillFromRawMessage(q.raw_message);
 
     reportForm({
       queryId: id,
       prefillSource: q.raw_message,
-      scheduleId: matchedScheduleId,
-      prefillArea: matchedScheduleId ? null : guessedArea,
-      date: prefillDateIso,
-      prefillAttendance,
-      prefillSaints,
+      scheduleId: info.scheduleId,
+      prefillArea: info.area,
+      date: info.dateIso,
+      prefillAttendance: info.attendance,
+      prefillSaints: info.saints,
     });
   }
 
@@ -1020,10 +1076,10 @@
     { key: 'date', re: /^તારીખ/ },
     { key: 'day', re: /^વાર/ },
     { key: 'mandal', re: /^મંડળ/ },
-    { key: 'attendance', re: /^હાજરી/ },
-    { key: 'saints', re: /^(પૂજ્ય\s*)?સંતો\s*આવેલ/ },
+    { key: 'attendance', re: /^(?:સભામાં\s*)?હાજરી/ },
+    { key: 'saints', re: /^(?:(?:પૂજ્ય|પૂ)\s*)?સંતો(?:\s+\S+)?\s*આવેલ/ },
   ];
-  const SABHA_KEYWORD_HINT = /ક્ષેત્ર|તારીખ|વાર|મંડળ|હાજરી|સંતો\s*આવેલ/;
+  const SABHA_KEYWORD_HINT = /ક્ષેત્ર|તારીખ|વાર|મંડળ|હાજરી|સંતો\s*(?:\S+\s*)?આવેલ/;
 
   function parseSabhaFieldLine(line) {
     const t = line.trim();
@@ -1082,20 +1138,96 @@
   // Resolves one parsed record against the loaded Mandal/schedule master
   // data. Returns {ok:true, payload} ready for insert, or {ok:false,
   // errors, raw} to send to Review Queries for manual resolution.
+  // ---------- fuzzy Mandal name matching (tolerates spelling mistakes) ----------
+  // Only collapses whitespace differences (e.g. "બજરંગ વાડી" vs
+  // "બજરંગવાડી"). Deliberately does NOT strip "યુવા"/"યુવક" here — some
+  // Mandals exist as two separate registered records that differ only by
+  // that word (e.g. "શ્રીહરિ પાર્ક" vs "શ્રીહરિ પાર્ક યુવા"), so this word
+  // can be the only thing telling them apart.
+  function normalizeMandalName(s) {
+    return (s || '').replace(/\s+/g, '').trim();
+  }
+
+  // Strips generic "Yuvak group" descriptor noise some admins redundantly
+  // add after a Mandal's actual name in chat (e.g. "પ્રમુખનગર યુવક મંડળ").
+  // Only ever used below for Mandals that have no same-named yuvak/regular
+  // sibling, where stripping can't cause two different Mandals to collide.
+  function stripYuvakNoise(s) {
+    let t = (s || '').trim();
+    t = t.replace(/યુવક\s*મંડળ/g, '').replace(/યુવા\s*મંડળ/g, '').replace(/મંડળ/g, '').replace(/યુવક/g, '').replace(/યુવા/g, '');
+    return t.replace(/\s+/g, '').trim();
+  }
+
+  function levenshtein(a, b) {
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      }
+    }
+    return dp[m][n];
+  }
+
+  // Finds the closest known Mandal to a raw (possibly misspelled/noisy) name
+  // from chat, in three passes, each one stricter about not guessing wrong
+  // than the next is lenient:
+  //  1. Exact match on the name as typed (whitespace-normalized only) —
+  //     always wins, and is the only reliable way to pick between a
+  //     regular/Yuvak pair that differ only by a "યુવા" suffix.
+  //  2. Noise-stripped match ("યુવક મંડળ" etc. removed) — but only applied
+  //     to Mandals that have no same-stripped-name sibling, so it can never
+  //     be the thing that confuses a regular/Yuvak pair with each other.
+  //  3. Closest by edit distance (on the un-stripped names), accepted only
+  //     if it's close enough (within ~25% of the name's length) AND clearly
+  //     better than the next-closest candidate.
+  function findClosestMandal(rawName, mandals) {
+    const rawNorm = normalizeMandalName(rawName);
+    if (!rawNorm) return null;
+
+    const exact = mandals.find(m => normalizeMandalName(m.mandal) === rawNorm);
+    if (exact) return exact;
+
+    const strippedGroups = new Map();
+    for (const m of mandals) {
+      const key = stripYuvakNoise(m.mandal);
+      if (!strippedGroups.has(key)) strippedGroups.set(key, []);
+      strippedGroups.get(key).push(m);
+    }
+    const group = strippedGroups.get(stripYuvakNoise(rawName));
+    if (group && group.length === 1) return group[0];
+
+    let best = null, bestDist = Infinity, secondDist = Infinity;
+    for (const m of mandals) {
+      const d = levenshtein(rawNorm, normalizeMandalName(m.mandal));
+      if (d < bestDist) { secondDist = bestDist; bestDist = d; best = m; }
+      else if (d < secondDist) { secondDist = d; }
+    }
+    const threshold = Math.max(1, Math.round(rawNorm.length * 0.25));
+    if (best && bestDist <= threshold && bestDist < secondDist) return best;
+    return null;
+  }
+
   function resolveSabhaRecord(rec) {
     const errors = [];
     const iso = ddmmyyyyToIso(rec.date);
     if (!iso) errors.push('date');
 
-    const day = (rec.day || '').trim();
-    if (!DAYS.includes(day)) errors.push('day');
+    // Trust the calendar over manually typed day text: people abbreviate,
+    // mistype, or sometimes skip the વાર line entirely, but the date is
+    // unambiguous. Only fails for a Sunday (no Sabha day configured for it).
+    const day = iso ? dayLabelForDate(iso) : null;
+    if (!day) errors.push('day');
 
     const mandalName = (rec.mandal || '').trim();
-    const mandal = state.mandals.find(m => m.mandal.trim() === mandalName);
+    const mandal = findClosestMandal(mandalName, state.mandals);
     if (!mandal) errors.push('mandal not found in Sabha Config');
 
     let schedule = null;
-    if (mandal && DAYS.includes(day)) {
+    if (mandal && day) {
       schedule = state.schedules.find(s => s.mandal_id === mandal.id && s.sabha_day === day);
       if (!schedule) errors.push('no matching schedule for this Mandal/day');
     }
@@ -1228,6 +1360,53 @@
     };
   }
 
+  // ---------- backup / export ----------
+  // Fetches every row of a table (paged, so it isn't capped at 1000).
+  async function fetchAllRows(table) {
+    const rows = [];
+    const size = 1000;
+    for (let from = 0; ; from += size) {
+      const { data, error } = await sb.from(table).select('*').range(from, from + size - 1);
+      if (error) throw error;
+      rows.push(...data);
+      if (data.length < size) break;
+    }
+    return rows;
+  }
+
+  function downloadFile(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  async function backupJson() {
+    try {
+      const tables = ['sabha_mandals', 'sabha_schedules', 'sabha_reports', 'sabha_queries'];
+      const out = { exported_at: new Date().toISOString(), tables: {} };
+      for (const t of tables) out.tables[t] = await fetchAllRows(t);
+      downloadFile(`sabha_backup_${localDate()}.json`, JSON.stringify(out, null, 2), 'application/json;charset=utf-8');
+      msg('Backup downloaded.');
+    } catch (e) { msg(e.message, 'error'); }
+  }
+
+  // CSV with a UTF-8 BOM so Excel shows Gujarati text correctly.
+  async function backupReportsCsv() {
+    try {
+      const rows = await fetchAllRows('sabha_reports');
+      const cols = ['date', 'day', 'area', 'mandal', 'yuvak_mandal', 'attendance', 'saints_present', 'status', 'source_message', 'created_at'];
+      const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const csv = [cols.join(','), ...rows.map(r => cols.map(c => cell(r[c])).join(','))].join('\r\n');
+      downloadFile(`sabha_reports_${localDate()}.csv`, '\uFEFF' + csv, 'text/csv;charset=utf-8');
+      msg('Reports CSV downloaded.');
+    } catch (e) { msg(e.message, 'error'); }
+  }
+
   // ---------- auth / bootstrap ----------
   async function init() {
     state.weekStart = mondayOf(localDate());
@@ -1319,6 +1498,8 @@
   $('configSearch').oninput = renderConfig;
   $('configDay').onchange = renderConfig;
   $('addConfigBtn').onclick = () => configForm();
+  $('backupJsonBtn').onclick = backupJson;
+  $('backupCsvBtn').onclick = backupReportsCsv;
   $('addReportBtn').onclick = () => reportForm();
 
   window.editConfig = (mid, sid) => configForm(state.mandals.find(m => m.id === mid), state.schedules.find(s => s.id === sid));
