@@ -717,7 +717,10 @@
           <td>${r.status === 'not_held' ? '—' : esc(r.attendance ?? 0)}</td>
           <td>${r.saints_present ? 'Yes' : 'No'}</td>
           <td>${statusBadge(r.status)}</td>
-          <td><button class="secondary" onclick="editReport('${r.id}')">Edit</button></td>
+          <td style="white-space:nowrap">
+            <button class="secondary" onclick="editReport('${r.id}')">Edit</button>
+            <button class="danger" onclick="deleteReport('${r.id}')">Delete</button>
+          </td>
         </tr>`).join('')
       : `<tr><td colspan="9" class="empty">No reports found.</td></tr>`;
   }
@@ -948,9 +951,12 @@
         if (qid) {
           const { error: qErr } = await sb.from('sabha_queries').update({ status: 'resolved' }).eq('id', qid);
           if (qErr) throw qErr;
+          const q = state.queries.find(x => x.id === qid);
+          if (q) q.status = 'resolved'; // instant local update, don't wait on reload
         }
 
         closeModal();
+        if (qid) renderQueries();
         await loadAll();
         renderReports();
         renderDashboard();
@@ -979,7 +985,7 @@
 
     let matchedScheduleId = null;
     if (fields.mandal) {
-      const mandal = findClosestMandal(fields.mandal, state.mandals);
+      const mandal = findClosestMandal(fields.mandal, state.mandals, fields.area);
       if (mandal) {
         const schedsForMandal = state.schedules.filter(s => s.mandal_id === mandal.id);
         const targetDay = derivedDay || (fields.day && fields.day.trim());
@@ -1024,9 +1030,32 @@
     reportForm({ report });
   }
 
+  async function deleteReport(id) {
+    const report = state.reports.find(r => r.id === id);
+    if (!report) return;
+    const label = `${report.mandal} · ${formatDate(report.date)}`;
+    if (!confirm(`Delete the report for ${label}? This cannot be undone.`)) return;
+    try {
+      const { error } = await sb.from('sabha_reports').delete().eq('id', id);
+      if (error) throw error;
+      state.reports = state.reports.filter(r => r.id !== id); // instant local update
+      renderReports();
+      renderDashboard();
+      await loadAll();
+      renderReports();
+      renderDashboard();
+      msg('Report deleted.');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   async function resolveQuery(id) {
     const { error } = await sb.from('sabha_queries').update({ status: 'resolved' }).eq('id', id);
     if (error) { alert(error.message); return; }
+    const q = state.queries.find(x => x.id === id);
+    if (q) q.status = 'resolved'; // instant local update, don't wait on reload
+    renderQueries();
     await loadAll();
     renderQueries();
     msg('Query resolved.');
@@ -1046,7 +1075,14 @@
   function sanitizeWaLine(line) {
     return line
       .replace(/[\u200E\u200F\u202A-\u202E\uFEFF]/g, '')
-      .replace(/[\u00A0\u202F]/g, ' ');
+      .replace(/[\u00A0\u202F]/g, ' ')
+      // Gujarati numerals (૦-૯) → ASCII digits, so date/attendance regexes
+      // (which only recognize \d) still work when someone types ૦૧/૧૦/૨૦૨૬
+      // or ૨૨ instead of 01/10/2026 or 22.
+      .replace(/[\u0AE6-\u0AEF]/g, d => String.fromCharCode(d.charCodeAt(0) - 0x0AE6 + 0x30))
+      // WhatsApp's own forwarded/edited tags, wherever they land in the line.
+      .replace(/\[Forwarded(?:\s+many\s+times)?\]\s*/gi, '')
+      .replace(/<This message was edited>\s*/gi, '');
   }
 
   function splitWhatsappMessages(text) {
@@ -1077,9 +1113,9 @@
     { key: 'day', re: /^વાર/ },
     { key: 'mandal', re: /^મંડળ/ },
     { key: 'attendance', re: /^(?:સભામાં\s*)?હાજરી/ },
-    { key: 'saints', re: /^(?:(?:પૂજ્ય|પૂ)\s*)?સંતો(?:\s+\S+)?\s*આવેલ/ },
+    { key: 'saints', re: /^(?:(?:પૂજ્ય|પૂ)\s*)?સંતો/ },
   ];
-  const SABHA_KEYWORD_HINT = /ક્ષેત્ર|તારીખ|વાર|મંડળ|હાજરી|સંતો\s*(?:\S+\s*)?આવેલ/;
+  const SABHA_KEYWORD_HINT = /ક્ષેત્ર|તારીખ|વાર|મંડળ|હાજરી|સંતો/;
 
   function parseSabhaFieldLine(line) {
     const t = line.trim();
@@ -1173,23 +1209,24 @@
   }
 
   // Finds the closest known Mandal to a raw (possibly misspelled/noisy) name
-  // from chat, in three passes, each one stricter about not guessing wrong
-  // than the next is lenient:
+  // from chat, in passes, each one stricter about not guessing wrong than
+  // the next is lenient:
   //  1. Exact match on the name as typed (whitespace-normalized only) —
-  //     always wins, and is the only reliable way to pick between a
+  //     always wins, and is the most reliable way to pick between a
   //     regular/Yuvak pair that differ only by a "યુવા" suffix.
-  //  2. Noise-stripped match ("યુવક મંડળ" etc. removed) — but only applied
-  //     to Mandals that have no same-stripped-name sibling, so it can never
-  //     be the thing that confuses a regular/Yuvak pair with each other.
+  //  2. Noise-stripped match ("યુવક મંડળ" etc. removed). If that collapses
+  //     to one Mandal, it's safe. If it collapses to a regular/Yuvak PAIR
+  //     (the Mandal name itself didn't say "યુવા" either way), the ક્ષેત્ર
+  //     line's own wording is used as a tie-breaker — admins often write
+  //     "ક્ષેત્ર : ... યુવા" once for the whole message instead of repeating
+  //     "યુવા" on every Mandal line under it. Still ambiguous after that →
+  //     refuse rather than guess.
   //  3. Closest by edit distance (on the un-stripped names), accepted only
   //     if it's close enough (within ~25% of the name's length) AND clearly
   //     better than the next-closest candidate.
-  function findClosestMandal(rawName, mandals) {
+  function findClosestMandal(rawName, mandals, areaHint) {
     const rawNorm = normalizeMandalName(rawName);
     if (!rawNorm) return null;
-
-    const exact = mandals.find(m => normalizeMandalName(m.mandal) === rawNorm);
-    if (exact) return exact;
 
     const strippedGroups = new Map();
     for (const m of mandals) {
@@ -1198,7 +1235,28 @@
       strippedGroups.get(key).push(m);
     }
     const group = strippedGroups.get(stripYuvakNoise(rawName));
-    if (group && group.length === 1) return group[0];
+    if (group) {
+      if (group.length === 1) return group[0];
+      // Ambiguous base name shared by a regular/Yuvak pair. If the Mandal
+      // line itself said યુવા/યુવક, trust an exact match to the specific
+      // sibling it actually names (a plain exact match here is NOT tried
+      // first in general, because the Mandal line typed without "યુવા"
+      // naturally equals the regular sibling's name — that coincidence
+      // must not silently win over an explicit યુવા hint elsewhere).
+      if (/યુવા|યુવક/.test(rawName || '')) {
+        const exactInGroup = group.find(m => normalizeMandalName(m.mandal) === rawNorm);
+        if (exactInGroup) return exactInGroup;
+      }
+      // Otherwise fall back to the ક્ષેત્ર line's own wording — admins often
+      // state "યુવા" once there instead of repeating it on every Mandal line.
+      const wantYuvak = /યુવા|યુવક/.test(areaHint || '');
+      const tieBroken = group.filter(m => !!m.yuvak_mandal === wantYuvak);
+      if (tieBroken.length === 1) return tieBroken[0];
+      return null; // still ambiguous — leave it for manual review
+    }
+
+    const exact = mandals.find(m => normalizeMandalName(m.mandal) === rawNorm);
+    if (exact) return exact;
 
     let best = null, bestDist = Infinity, secondDist = Infinity;
     for (const m of mandals) {
@@ -1223,7 +1281,7 @@
     if (!day) errors.push('day');
 
     const mandalName = (rec.mandal || '').trim();
-    const mandal = findClosestMandal(mandalName, state.mandals);
+    const mandal = findClosestMandal(mandalName, state.mandals, rec.area);
     if (!mandal) errors.push('mandal not found in Sabha Config');
 
     let schedule = null;
@@ -1507,6 +1565,7 @@
   window.resolveQueryWithReport = resolveQueryWithReport;
   window.reportForm = reportForm;
   window.editReport = editReport;
+  window.deleteReport = deleteReport;
   window.closeModal = closeModal;
   window.showPendingModal = showPendingModal;
 
